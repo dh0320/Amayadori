@@ -5,4 +5,4 @@ Amayadori (雨宿り) is a small chat demo. The original prototype checked your 
 ## Running the prototype
 
 1. Download or clone this repository and open `index.html` in your browser.
-2. Start chatting – no API keys or configuration are required.
+2. Set your nickname, icon and profile on the first screen, then start chatting – no API keys or configuration are required.

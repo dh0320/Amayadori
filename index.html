@@ -12,6 +12,14 @@
             background-color: #1a202c;
             color: #e2e8f0;
         }
+        #rain-container {
+            z-index: 0;
+        }
+        #chat-screen,
+        #profile-screen {
+            position: relative;
+            z-index: 10;
+        }
         .rain-drop {
             position: absolute;
             bottom: 100%;
@@ -56,11 +64,35 @@
 
     <!-- APIキー入力画面や天候判定画面は省略 -->
 
+    <!-- プロフィール設定画面 -->
+    <div id="profile-screen" class="w-full h-full flex items-center justify-center">
+        <div class="bg-gray-800 p-6 rounded-lg shadow-lg space-y-4 w-80">
+            <div class="text-center">
+                <img id="icon-preview" class="w-24 h-24 rounded-full mx-auto mb-2 hidden" alt="icon preview">
+                <input type="file" id="icon-input" accept="image/*" class="text-white">
+            </div>
+            <input type="text" id="nickname-input" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white focus:outline-none" placeholder="ニックネーム">
+            <textarea id="profile-input" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white focus:outline-none" placeholder="プロフィール"></textarea>
+            <button id="start-button" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded transition duration-300">チャット開始</button>
+        </div>
+    </div>
+
     <!-- チャット画面 -->
     <div id="chat-screen" class="w-full h-full flex flex-col hidden">
-        <header class="w-full p-4 bg-black bg-opacity-20 text-center shadow-md">
-            <h2 id="room-name" class="text-xl font-bold"></h2>
-            <p id="user-count" class="text-sm text-gray-400"></p>
+        <header class="w-full p-4 bg-black bg-opacity-20 shadow-md">
+            <div class="flex items-center justify-between">
+                <div>
+                    <h2 id="room-name" class="text-xl font-bold"></h2>
+                    <p id="user-count" class="text-sm text-gray-400"></p>
+                </div>
+                <div id="profile-info" class="flex items-center space-x-2 hidden">
+                    <img id="header-icon" class="w-8 h-8 rounded-full" alt="user icon">
+                    <div>
+                        <p id="header-name" class="text-sm font-bold"></p>
+                        <p id="header-profile" class="text-xs text-gray-300"></p>
+                    </div>
+                </div>
+            </div>
         </header>
         <main id="chat-messages" class="flex-1 p-4 overflow-y-auto flex flex-col">
             <!-- メッセージはここに表示される -->
@@ -81,6 +113,21 @@
         const roomName = document.getElementById('room-name');
         const rainContainer = document.getElementById('rain-container');
 
+        const profileScreen = document.getElementById('profile-screen');
+        const nicknameInput = document.getElementById('nickname-input');
+        const profileInput = document.getElementById('profile-input');
+        const iconInput = document.getElementById('icon-input');
+        const iconPreview = document.getElementById('icon-preview');
+        const startButton = document.getElementById('start-button');
+        const profileInfo = document.getElementById('profile-info');
+        const headerIcon = document.getElementById('header-icon');
+        const headerName = document.getElementById('header-name');
+        const headerProfile = document.getElementById('header-profile');
+
+        let userNickname = 'あなた';
+        let userIcon = '';
+        let userProfile = '';
+
         const BOT_REPLIES = [
             'こんにちは、ようこそ。',
             '雨音が心地いいですね。',
@@ -90,8 +137,9 @@
 
         window.onload = () => {
             roomName.textContent = '雨宿りチャット';
-            chatScreen.classList.remove('hidden');
             createRain();
+            startButton.addEventListener('click', startChat);
+            iconInput.addEventListener('change', previewIcon);
             sendButton.addEventListener('click', sendMessage);
             messageInput.addEventListener('keypress', e => {
                 if (e.key === 'Enter') sendMessage();
@@ -109,7 +157,18 @@
             }
         }
 
-        function appendMessage(text, nickname, isMe) {
+        function appendMessage(text, nickname, icon, isMe) {
+            const wrapper = document.createElement('div');
+            wrapper.className = `flex items-start ${isMe ? 'justify-end' : 'justify-start'}`;
+
+            const img = document.createElement('img');
+            if (icon) {
+                img.src = icon;
+                img.className = 'w-8 h-8 rounded-full mr-2';
+            } else {
+                img.className = 'w-8 h-8 mr-2 invisible';
+            }
+
             const div = document.createElement('div');
             div.className = `chat-bubble ${isMe ? 'me' : 'other'}`;
 
@@ -122,21 +181,56 @@
 
             div.appendChild(nicknameSpan);
             div.appendChild(textP);
-            chatMessages.appendChild(div);
+            if (isMe) {
+                wrapper.appendChild(div);
+                wrapper.appendChild(img);
+            } else {
+                wrapper.appendChild(img);
+                wrapper.appendChild(div);
+            }
+
+            chatMessages.appendChild(wrapper);
             chatMessages.scrollTop = chatMessages.scrollHeight;
         }
 
         function sendMessage() {
             const text = messageInput.value.trim();
             if (!text) return;
-            appendMessage(text, 'あなた', true);
+            appendMessage(text, userNickname, userIcon, true);
             messageInput.value = '';
             setTimeout(botReply, 800);
         }
 
         function botReply() {
             const text = BOT_REPLIES[Math.floor(Math.random() * BOT_REPLIES.length)];
-            appendMessage(text, 'ボット', false);
+            appendMessage(text, 'ボット', 'https://via.placeholder.com/40', false);
+        }
+
+        function previewIcon() {
+            const file = iconInput.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = e => {
+                iconPreview.src = e.target.result;
+                iconPreview.classList.remove('hidden');
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function startChat() {
+            userNickname = nicknameInput.value.trim() || 'あなた';
+            userProfile = profileInput.value.trim();
+            if (iconPreview.src) {
+                userIcon = iconPreview.src;
+            }
+            headerName.textContent = userNickname;
+            headerProfile.textContent = userProfile;
+            if (userIcon) {
+                headerIcon.src = userIcon;
+            }
+            profileInfo.classList.remove('hidden');
+            profileScreen.classList.add('hidden');
+            chatScreen.classList.remove('hidden');
         }
     </script>
 </body>

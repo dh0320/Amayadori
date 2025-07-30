@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Amayadori (雨宿り) - プロトタイプ</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+JP:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Noto Serif JP', serif;
+            background-color: #1a202c;
+            color: #e2e8f0;
+        }
+        .rain-drop {
+            position: absolute;
+            bottom: 100%;
+            width: 2px;
+            height: 80px;
+            background: linear-gradient(to bottom, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.4));
+            animation: fall 2s linear infinite;
+        }
+        @keyframes fall {
+            to {
+                transform: translateY(100vh);
+            }
+        }
+        .chat-bubble {
+            max-width: 75%;
+            padding: 10px 15px;
+            border-radius: 20px;
+            margin-bottom: 10px;
+            word-wrap: break-word;
+        }
+        .chat-bubble.me {
+            background-color: #4a5568;
+            align-self: flex-end;
+        }
+        .chat-bubble.other {
+            background-color: #2d3748;
+            align-self: flex-start;
+        }
+        .fade-in {
+            animation: fadeIn 1.5s ease-in-out;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+    </style>
+</head>
+<body class="w-full h-screen overflow-hidden">
+
+    <!-- 雨のアニメーション用コンテナ -->
+    <div id="rain-container" class="absolute top-0 left-0 w-full h-full pointer-events-none overflow-hidden"></div>
+
+    <!-- APIキー入力画面 -->
+    <div id="api-key-screen" class="w-full h-full flex flex-col justify-center items-center p-8 text-center fade-in">
+        <h1 class="text-4xl font-bold mb-4">Amayadori</h1>
+        <p class="text-lg mb-6">雨が降っている人だけが話せる、束の間のチャット。</p>
+        <div class="w-full max-w-md">
+            <label for="api-key-input" class="block mb-2 text-sm text-gray-400">OpenWeatherMap APIキーを入力してください</label>
+            <input type="text" id="api-key-input" class="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Your API Key...">
+            <button id="start-button" class="mt-4 w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition duration-300">
+                雨宿りの場所を探す
+            </button>
+            <p class="text-xs text-gray-500 mt-2">APIキーは <a href="https://openweathermap.org/appid" target="_blank" class="underline">OpenWeatherMap</a> で取得できます。入力されたキーはローカルにのみ保存されます。</p>
+        </div>
+    </div>
+
+    <!-- 判定中画面 -->
+    <div id="loading-screen" class="w-full h-full flex flex-col justify-center items-center p-8 text-center hidden">
+        <div class="animate-spin rounded-full h-16 w-16 border-b-2 border-white mb-4"></div>
+        <p class="text-lg">空の様子を見ています...</p>
+    </div>
+
+    <!-- 参加不可画面 -->
+    <div id="denied-screen" class="w-full h-full flex flex-col justify-center items-center p-8 text-center hidden">
+        <h2 class="text-3xl font-bold mb-4">今は雨が降っていないようです。</h2>
+        <p class="text-lg mb-6">また次の雨の日に、お会いしましょう。</p>
+        <button onclick="location.reload()" class="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded-lg transition duration-300">
+            もう一度試す
+        </button>
+    </div>
+    
+    <!-- チャット終了画面 -->
+    <div id="closed-screen" class="w-full h-full flex flex-col justify-center items-center p-8 text-center hidden">
+        <h2 class="text-3xl font-bold mb-4">雨が、上がりました。</h2>
+        <p class="text-lg mb-6">このお話は、これでおしまい。</p>
+        <p class="text-sm text-gray-400">すべての会話は、泡のように消えました。</p>
+        <button onclick="location.reload()" class="mt-6 bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded-lg transition duration-300">
+            また次の雨の日に
+        </button>
+    </div>
+
+    <!-- チャット画面 -->
+    <div id="chat-screen" class="w-full h-full flex flex-col hidden">
+        <header class="w-full p-4 bg-black bg-opacity-20 text-center shadow-md">
+            <h2 id="room-name" class="text-xl font-bold"></h2>
+            <p id="user-count" class="text-sm text-gray-400"></p>
+        </header>
+        <main id="chat-messages" class="flex-1 p-4 overflow-y-auto flex flex-col">
+            <!-- メッセージはここに表示される -->
+        </main>
+        <footer class="p-4 bg-black bg-opacity-20">
+            <div class="flex">
+                <input type="text" id="message-input" class="flex-1 bg-gray-700 border border-gray-600 rounded-l-lg px-4 py-2 text-white focus:outline-none" placeholder="メッセージをどうぞ...">
+                <button id="send-button" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-r-lg transition duration-300">送信</button>
+            </div>
+        </footer>
+    </div>
+
+    <script type="module">
+        // Firebase SDK のインポート
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, query, onSnapshot, orderBy, serverTimestamp, doc, setDoc, getDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // --- Firebase設定 ---
+        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+
+        // --- アプリケーションの状態管理 ---
+        let db, auth;
+        let currentUserId, nickname, areaId;
+        let weatherCheckInterval;
+        let openWeatherApiKey;
+        const NICKNAMES = ['傘を忘れた人', '窓を叩く雨音', '紫陽花を見ていた', '雨宿り中の猫', '珈琲の湯気', '濡れたアスファルト', '遠くの雷鳴', '葉擦れの音'];
+        
+        // --- DOM要素 ---
+        const screens = {
+            apiKey: document.getElementById('api-key-screen'),
+            loading: document.getElementById('loading-screen'),
+            denied: document.getElementById('denied-screen'),
+            chat: document.getElementById('chat-screen'),
+            closed: document.getElementById('closed-screen'),
+        };
+        const apiKeyInput = document.getElementById('api-key-input');
+        const startButton = document.getElementById('start-button');
+        const messageInput = document.getElementById('message-input');
+        const sendButton = document.getElementById('send-button');
+        const chatMessages = document.getElementById('chat-messages');
+        const roomName = document.getElementById('room-name');
+        const userCount = document.getElementById('user-count');
+        const rainContainer = document.getElementById('rain-container');
+
+        // --- 初期化処理 ---
+        window.onload = () => {
+            const savedApiKey = localStorage.getItem('openWeatherApiKey');
+            if (savedApiKey) {
+                apiKeyInput.value = savedApiKey;
+            }
+            startButton.addEventListener('click', startAmayadori);
+            sendButton.addEventListener('click', sendMessage);
+            messageInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') sendMessage();
+            });
+            createRain();
+        };
+
+        // --- 画面切り替え ---
+        function showScreen(screenName) {
+            Object.values(screens).forEach(screen => screen.classList.add('hidden'));
+            if (screens[screenName]) {
+                screens[screenName].classList.remove('hidden');
+                screens[screenName].classList.add('fade-in');
+            }
+        }
+
+        // --- 雨のアニメーション ---
+        function createRain() {
+            for (let i = 0; i < 50; i++) {
+                const drop = document.createElement('div');
+                drop.className = 'rain-drop';
+                drop.style.left = `${Math.random() * 100}%`;
+                drop.style.animationDelay = `${Math.random() * 2}s`;
+                drop.style.animationDuration = `${1 + Math.random()}s`;
+                rainContainer.appendChild(drop);
+            }
+        }
+
+        // --- アプリケーション開始 ---
+        async function startAmayadori() {
+            openWeatherApiKey = apiKeyInput.value.trim();
+            if (!openWeatherApiKey) {
+                alert('APIキーを入力してください。');
+                return;
+            }
+            localStorage.setItem('openWeatherApiKey', openWeatherApiKey);
+
+            showScreen('loading');
+
+            try {
+                const app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+                const userCredential = await signInAnonymously(auth);
+                currentUserId = userCredential.user.uid;
+                
+                await checkWeatherAndJoin();
+
+            } catch (error) {
+                console.error("Firebase初期化または認証エラー:", error);
+                alert("システムの準備に失敗しました。設定を確認してください。");
+                showScreen('apiKey');
+            }
+        }
+
+        // --- 天気確認とチャット参加 ---
+        async function checkWeatherAndJoin(isPeriodicCheck = false) {
+            try {
+                const position = await new Promise((resolve, reject) => {
+                    navigator.geolocation.getCurrentPosition(resolve, reject);
+                });
+                const { latitude, longitude } = position.coords;
+
+                const weatherApiUrl = `https://api.openweathermap.org/data/2.5/weather?lat=${latitude}&lon=${longitude}&appid=${openWeatherApiKey}&units=metric&lang=ja`;
+                const response = await fetch(weatherApiUrl);
+                if (!response.ok) {
+                    throw new Error(`天気情報の取得に失敗しました (HTTP ${response.status})`);
+                }
+                const weatherData = await response.json();
+                
+                const weatherId = weatherData.weather[0].id;
+                const isRainy = (weatherId >= 200 && weatherId < 700);
+
+                if (isRainy) {
+                    if (isPeriodicCheck && screens.chat.classList.contains('hidden')) {
+                        return;
+                    }
+                    if (screens.chat.classList.contains('hidden')) {
+                        areaId = `area_${latitude.toFixed(2)}_${longitude.toFixed(2)}`;
+                        nickname = NICKNAMES[Math.floor(Math.random() * NICKNAMES.length)];
+                        roomName.textContent = `${weatherData.name}の雨宿り`;
+                        await joinChatRoom();
+                        showScreen('chat');
+                        if (weatherCheckInterval) clearInterval(weatherCheckInterval);
+                        weatherCheckInterval = setInterval(() => checkWeatherAndJoin(true), 300000);
+                    }
+                } else {
+                    if (!screens.chat.classList.contains('hidden')) {
+                        await leaveChatRoom();
+                        showScreen('closed');
+                    } else if (!isPeriodicCheck) {
+                        showScreen('denied');
+                    }
+                }
+            } catch (error) {
+                console.error("天気情報の取得エラー:", error);
+                if (!isPeriodicCheck) {
+                    alert(`エラー: ${error.message}。位置情報が有効か、APIキーが正しいか確認してください。`);
+                    showScreen('apiKey');
+                }
+            }
+        }
+
+        // --- チャットルームへの参加 ---
+        async function joinChatRoom() {
+            const userRef = doc(db, `rooms/${areaId}/users`, currentUserId);
+
+            await setDoc(userRef, { nickname: nickname, joinedAt: serverTimestamp() });
+
+            const q = query(collection(db, `rooms/${areaId}/messages`), orderBy("timestamp"));
+            onSnapshot(q, (querySnapshot) => {
+                chatMessages.innerHTML = '';
+                querySnapshot.forEach((doc) => {
+                    const data = doc.data();
+                    const messageEl = createMessageElement(data);
+                    chatMessages.appendChild(messageEl);
+                });
+                chatMessages.scrollTop = chatMessages.scrollHeight;
+            });
+
+            const usersColRef = collection(db, `rooms/${areaId}/users`);
+            onSnapshot(usersColRef, (snapshot) => {
+                userCount.textContent = `${snapshot.size}人が雨宿り中`;
+            });
+        }
+        
+        // --- チャットルームからの退出（雨が止んだ時） ---
+        async function leaveChatRoom() {
+            if (weatherCheckInterval) clearInterval(weatherCheckInterval);
+            const userRef = doc(db, `rooms/${areaId}/users`, currentUserId);
+            await deleteDoc(userRef);
+        }
+
+        // --- メッセージ要素の作成 ---
+        function createMessageElement(data) {
+            const div = document.createElement('div');
+            const isMe = data.userId === currentUserId;
+            div.className = `chat-bubble ${isMe ? 'me' : 'other'}`;
+            
+            const nicknameSpan = document.createElement('span');
+            nicknameSpan.className = 'block text-xs font-bold mb-1';
+            nicknameSpan.textContent = isMe ? 'あなた' : data.nickname;
+            
+            const textP = document.createElement('p');
+            textP.textContent = data.text;
+            
+            div.appendChild(nicknameSpan);
+            div.appendChild(textP);
+            return div;
+        }
+
+        // --- メッセージ送信 ---
+        async function sendMessage() {
+            const text = messageInput.value.trim();
+            if (text) {
+                try {
+                    await addDoc(collection(db, `rooms/${areaId}/messages`), {
+                        text: text,
+                        nickname: nickname,
+                        userId: currentUserId,
+                        timestamp: serverTimestamp()
+                    });
+                    messageInput.value = '';
+                } catch (error) {
+                    console.error("メッセージ送信エラー: ", error);
+                    alert("メッセージの送信に失敗しました。");
+                }
+            }
+        }
+    </script>
+</body>
+</html>
